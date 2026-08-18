@@ -41,6 +41,4 @@ app.use("/notifications", notificationRoute);
 app.use("/custom-forms", customFormRoute);
 app.use("/attendance", attendanceRoute);
 
-app.listen(process.env.PORT || 5000, () => {
-  console.log("Server Started");
-})
+export default app;
