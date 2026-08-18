@@ -1,21 +1,28 @@
-import mongoose from 'mongoose';
-import path from 'path'
-import dotenv from 'dotenv'
-import { fileURLToPath } from 'url';
+import mongoose from "mongoose";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
-
-const connectDB = async() => {
-    try{
-        await mongoose.connect(process.env.DB_URL);
-        console.log("DB Connected!");
+const connectDB = async () => {
+  try {
+    // Reuse existing connection
+    if (mongoose.connection.readyState === 1) {
+      console.log("MongoDB already connected");
+      return;
     }
-    catch(err){
-        console.log(err);
+
+    // Check environment variable
+    if (!process.env.DB_URL) {
+      throw new Error("DB_URL environment variable is not defined");
     }
-}
+
+    await mongoose.connect(process.env.DB_URL);
+
+    console.log("DB Connected!");
+  } catch (error) {
+    console.error("MongoDB connection error:", error);
+
+    // IMPORTANT:
+    // Throw the error so Vercel knows the function failed.
+    throw error;
+  }
+};
 
 export default connectDB;
