@@ -16,3 +16,19 @@ export const verifyToken = async (req, res, next) => {
     return res.status(403).json({ success: false, message: "Invalid or expired token." });
   }
 };
+
+export const requireAdmin = (req, res, next) => {
+  if (req.user?.user_role !== "admin" && req.user?.user_role !== 0) {
+    return res.status(403).json({ success: false, message: "Access denied. Admin privileges required." });
+  }
+  next();
+};
+
+export const requireManagerOrAdmin = (req, res, next) => {
+  const role = req.user?.user_role;
+  const isMgrOrAdmin = role === "admin" || role === "manager" || role === "ceo" || req.user?.user_designation === "CEO" || role === 0;
+  if (!isMgrOrAdmin) {
+    return res.status(403).json({ success: false, message: "Access denied. Manager or Admin privileges required." });
+  }
+  next();
+};

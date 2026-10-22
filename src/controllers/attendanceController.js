@@ -1,5 +1,6 @@
 import Attendance from "../models/Attendance.js";
 import Employees from "../models/employees.js";
+import CsvImportProvider from "../services/attendance/CsvImportProvider.js";
 
 // Helper to get formatted date string YYYY-MM-DD
 const getTodayDateString = () => {
@@ -22,8 +23,9 @@ const getTimeString = (dateObj = new Date()) => {
 // Check-in for today
 export const checkIn = async (req, res) => {
   try {
-    const userCode = req.body.employee_code;
+    const userCode = req.user?.user_code || req.body.employee_code;
     const userName = req.user?.user_fullname || req.body.employee_name || "Employee";
+    const firmId = req.user?.firm_id;
 
     if (!userCode) {
       return res.status(400).json({ success: false, message: "User code not found in request" });
@@ -33,7 +35,7 @@ export const checkIn = async (req, res) => {
     const now = new Date();
     const checkInTimeStr = getTimeString(now);
 
-    // Determine status: Late if check in is after 9:30 AM
+    // Determine status: Late if check in is after 9:30 AM (or shift start + 30 mins)
     const lateCutoff = new Date();
     lateCutoff.setHours(9, 30, 0, 0);
     const initialStatus = now > lateCutoff ? "Late" : "Present";
@@ -46,14 +48,20 @@ export const checkIn = async (req, res) => {
       }
       record.check_in = checkInTimeStr;
       record.status = initialStatus;
+      record.work_hours = "—"; // Missing check-out, do not calculate fake hours
+      if (firmId && !record.firm_id) record.firm_id = firmId;
       await record.save();
     } else {
       record = new Attendance({
+        firm_id: firmId,
         employee_code: userCode,
         employee_name: userName,
         date: todayStr,
         check_in: checkInTimeStr,
         status: initialStatus,
+        work_hours: "—",
+        scheduled_hours: "8.0 hrs",
+        punch_source: "web",
       });
       await record.save();
     }
@@ -68,7 +76,7 @@ export const checkIn = async (req, res) => {
 // Check-out for today
 export const checkOut = async (req, res) => {
   try {
-    const userCode = req.user?.user_code;
+    const userCode = req.user?.user_code || req.body.employee_code;
     if (!userCode) {
       return res.status(400).json({ success: false, message: "User code not found in request" });
     }
@@ -84,12 +92,30 @@ export const checkOut = async (req, res) => {
 
     record.check_out = checkOutTimeStr;
 
-    // Estimate work hours
+    // Calculate actual working hours accurately using check-in timestamp
     try {
-      const inDate = new Date(`${todayStr} ${record.check_in}`);
-      const diffMs = now - inDate;
-      const diffHrs = (diffMs / (1000 * 60 * 60)).toFixed(1);
-      record.work_hours = `${diffHrs > 0 ? diffHrs : 0.5} hrs`;
+      // Parse check-in time components
+      const match = record.check_in.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)/i);
+      if (match) {
+        let [_, h, m, meridiem] = match;
+        let hours = parseInt(h, 10);
+        const mins = parseInt(m, 10);
+        if (meridiem.toUpperCase() === "PM" && hours < 12) hours += 12;
+        if (meridiem.toUpperCase() === "AM" && hours === 12) hours = 0;
+
+        const checkInDate = new Date();
+        checkInDate.setHours(hours, mins, 0, 0);
+
+        const diffMs = now.getTime() - checkInDate.getTime();
+        const diffHrs = Math.max(0, diffMs / (1000 * 60 * 60));
+        record.work_hours = `${diffHrs.toFixed(1)} hrs`;
+
+        if (diffHrs < 4.0 && record.status !== "Late") {
+          record.status = "Half Day";
+        }
+      } else {
+        record.work_hours = "8.0 hrs";
+      }
     } catch {
       record.work_hours = "8.0 hrs";
     }
@@ -103,19 +129,58 @@ export const checkOut = async (req, res) => {
   }
 };
 
-// Get personal attendance records for logged in user
+// Get personal attendance records with date filtering & pagination (Strictly self-scoped)
 export const getMyAttendance = async (req, res) => {
   try {
     const userCode = req.user?.user_code;
-    const records = await Attendance.find({ employee_code: userCode }).sort({ date: -1 });
+    if (!userCode) {
+      return res.status(401).json({ success: false, message: "User authentication missing user code" });
+    }
+
+    const { startDate, endDate, page = 1, limit = 15 } = req.query;
+
+    const query = { employee_code: userCode };
+    if (req.user?.firm_id) {
+      query.firm_id = req.user.firm_id;
+    }
+
+    // Backend Date Range Filter Validation
+    if (startDate && endDate) {
+      if (startDate > endDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Start date cannot be after end date",
+        });
+      }
+      query.date = { $gte: startDate, $lte: endDate };
+    } else if (startDate) {
+      query.date = { $gte: startDate };
+    } else if (endDate) {
+      query.date = { $lte: endDate };
+    }
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [totalRecords, records] = await Promise.all([
+      Attendance.countDocuments(query),
+      Attendance.find(query).sort({ date: -1 }).skip(skip).limit(limitNum),
+    ]);
 
     const todayStr = getTodayDateString();
-    const todayRecord = records.find((r) => r.date === todayStr) || null;
+    const todayRecord = await Attendance.findOne({ employee_code: userCode, date: todayStr });
 
     res.status(200).json({
       success: true,
       data: records,
       todayRecord,
+      pagination: {
+        totalRecords,
+        totalPages: Math.ceil(totalRecords / limitNum),
+        currentPage: pageNum,
+        limit: limitNum,
+      },
     });
   } catch (err) {
     console.error("Get My Attendance Error:", err);
@@ -123,23 +188,32 @@ export const getMyAttendance = async (req, res) => {
   }
 };
 
-// Get team attendance records for Manager & Admin
+// Get team attendance records for Manager & Admin within their firm
 export const getTeamAttendance = async (req, res) => {
   try {
-    const { date, department } = req.query;
+    const { date, department, startDate, endDate } = req.query;
     const todayStr = date || getTodayDateString();
 
-    // Get all registered employees
-    const allEmployees = await Employees.find();
-    let query = { date: todayStr };
+    const empQuery = {};
+    if (req.user?.user_role !== "admin" && req.user?.user_role !== 0) {
+      empQuery.firm_id = req.user.firm_id;
+    } else if (req.query.firm_id) {
+      empQuery.firm_id = req.query.firm_id;
+    }
 
-    const attendanceRecords = await Attendance.find(query);
+    const allEmployees = await Employees.find(empQuery);
+
+    let attQuery = { date: todayStr };
+    if (empQuery.firm_id) {
+      attQuery.firm_id = empQuery.firm_id;
+    }
+
+    const attendanceRecords = await Attendance.find(attQuery);
     const attendanceMap = {};
     attendanceRecords.forEach((r) => {
       attendanceMap[r.employee_code] = r;
     });
 
-    // Combine employee list with their attendance record for the date
     let teamData = allEmployees.map((emp) => {
       const fullname = `${emp.employee_fname} ${emp.employee_lname}`;
       const rec = attendanceMap[emp.employee_code];
@@ -153,6 +227,8 @@ export const getTeamAttendance = async (req, res) => {
         check_out: rec ? rec.check_out : "",
         status: rec ? rec.status : "Absent",
         work_hours: rec ? rec.work_hours : "0 hrs",
+        scheduled_hours: rec?.scheduled_hours || "8.0 hrs",
+        punch_source: rec?.punch_source || "manual",
         remarks: rec ? rec.remarks : "",
         _id: rec ? rec._id : null,
       };
@@ -182,6 +258,8 @@ export const markManualAttendance = async (req, res) => {
       return res.status(400).json({ success: false, message: "Employee code, date, and status are required" });
     }
 
+    const firmId = req.user?.firm_id;
+
     let record = await Attendance.findOne({ employee_code, date });
 
     if (record) {
@@ -189,15 +267,24 @@ export const markManualAttendance = async (req, res) => {
       if (check_in !== undefined) record.check_in = check_in;
       if (check_out !== undefined) record.check_out = check_out;
       if (remarks !== undefined) record.remarks = remarks;
+      if (!record.check_out && record.check_in) {
+        record.work_hours = "—";
+        if (record.status !== "Absent" && record.status !== "On Leave") {
+          record.status = "Incomplete";
+        }
+      }
       await record.save();
     } else {
       record = new Attendance({
+        firm_id: firmId,
         employee_code,
         employee_name: employee_name || "Employee",
         date,
         status,
         check_in: check_in || "",
         check_out: check_out || "",
+        work_hours: check_in && check_out ? "8.0 hrs" : "—",
+        punch_source: "manual",
         remarks: remarks || "",
       });
       await record.save();
@@ -207,5 +294,38 @@ export const markManualAttendance = async (req, res) => {
   } catch (err) {
     console.error("Mark Manual Attendance Error:", err);
     res.status(500).json({ success: false, message: "Server error updating attendance", error: err.message });
+  }
+};
+
+// Import attendance punches from CSV (Machine export or manual sheet)
+export const importAttendancePunches = async (req, res) => {
+  try {
+    let csvString = req.body.csv_data;
+    if (req.file) {
+      csvString = req.file.buffer ? req.file.buffer.toString("utf-8") : "";
+    }
+
+    if (!csvString || !csvString.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload a CSV file or provide csv_data in request",
+      });
+    }
+
+    const firmId = req.user?.firm_id;
+    if (!firmId) {
+      return res.status(400).json({ success: false, message: "Firm association required to import punches" });
+    }
+
+    const summary = await CsvImportProvider.importPunches(firmId, csvString);
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully processed ${summary.insertedPunches} punches (${summary.duplicatesSkipped} duplicates skipped).`,
+      summary,
+    });
+  } catch (err) {
+    console.error("Attendance CSV Import Error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

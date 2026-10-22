@@ -2,8 +2,11 @@ import Appraisals from "../models/appraisals.js";
 import DFIForms from "../models/dfi.js";
 import KPIForms from "../models/kpi.js";
 import Users from "../models/users.js";
+import Firm from "../models/Firm.js";
+import Employees from "../models/employees.js";
 import CustomFormSubmission from "../models/CustomFormSubmission.js";
 import { createNotification } from "../utils/notifications.js";
+import { sendAppraisalApprovedEmail } from "../utils/emailService.js";
 
 export const allFormRequests = async (req, res) => {
   try {
@@ -17,10 +20,12 @@ export const allFormRequests = async (req, res) => {
       return res.status(200).json({ success: true, AllFormSubmissions: [] });
     }
 
-    const AppraisalRequests = await Appraisals.find();
-    const DFIRequests = await DFIForms.find();
-    const KPIRequests = await KPIForms.find();
-    const CustomRequests = await CustomFormSubmission.find();
+    const firmFilter = req.user?.firm_id ? { firm_id: req.user.firm_id } : {};
+
+    const AppraisalRequests = await Appraisals.find(firmFilter);
+    const DFIRequests = await DFIForms.find(firmFilter);
+    const KPIRequests = await KPIForms.find(firmFilter);
+    const CustomRequests = await CustomFormSubmission.find(firmFilter);
 
     const AllFormSubmissions = [...AppraisalRequests, ...DFIRequests, ...KPIRequests, ...CustomRequests];
 
@@ -179,6 +184,33 @@ export const managerAction = async (req, res) => {
 
       doc.form_status = form_status; // approved or rejected directly
 
+      if (form_status === "approved" && doc.form_title === "Annual Appraisal" && !doc.email_sent) {
+        if (req.body.updated_salary) {
+          doc.updated_salary = String(req.body.updated_salary);
+          await Employees.findOneAndUpdate(
+            { employee_code: doc.employee_code },
+            { employee_salary: String(req.body.updated_salary) }
+          );
+        }
+        if (req.body.effective_date) {
+          doc.effective_date = new Date(req.body.effective_date);
+        }
+        doc.email_sent = true;
+        doc.email_sent_at = new Date();
+
+        const recipientEmail = creatorUser?.user_email;
+        if (recipientEmail) {
+          sendAppraisalApprovedEmail({
+            toEmail: recipientEmail,
+            employeeName: doc.employee_name,
+            formTitle: doc.form_title,
+            updatedSalary: doc.updated_salary,
+            effectiveDate: doc.effective_date || new Date(),
+            remarks: manager_remarks || "Approved by CEO",
+          }).catch((err) => console.error("Appraisal email error:", err));
+        }
+      }
+
       if (creatorUser) {
         await createNotification(
           creatorUser._id,
@@ -253,6 +285,33 @@ export const managerAction = async (req, res) => {
       // ✅ Only mark approved when ALL managers have approved
       if (approvedCount === managers.length) {
         doc.form_status = "approved";
+
+        if (doc.form_title === "Annual Appraisal" && !doc.email_sent) {
+          if (req.body.updated_salary) {
+            doc.updated_salary = String(req.body.updated_salary);
+            await Employees.findOneAndUpdate(
+              { employee_code: doc.employee_code },
+              { employee_salary: String(req.body.updated_salary) }
+            );
+          }
+          if (req.body.effective_date) {
+            doc.effective_date = new Date(req.body.effective_date);
+          }
+          doc.email_sent = true;
+          doc.email_sent_at = new Date();
+
+          const recipientEmail = employeeUser?.user_email;
+          if (recipientEmail) {
+            sendAppraisalApprovedEmail({
+              toEmail: recipientEmail,
+              employeeName: doc.employee_name,
+              formTitle: doc.form_title,
+              updatedSalary: doc.updated_salary,
+              effectiveDate: doc.effective_date || new Date(),
+              remarks: manager_remarks || "Approved by Management",
+            }).catch((err) => console.error("Appraisal email error:", err));
+          }
+        }
 
         if (employeeUserId) {
           await createNotification(

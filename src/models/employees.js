@@ -39,7 +39,7 @@ const employeesModel = new mongoose.Schema({
     },
     employee_image : {
         type: String,
-        required: true,
+        default: "fallback-avatar.svg",
     },
     employee_department : {
         type: String,
@@ -60,6 +60,28 @@ const employeesModel = new mongoose.Schema({
     employee_salary : {
         type: String,
         required: true,
+    },
+    salary_basis: {
+        type: String,
+        enum: ["Monthly", "Hourly"],
+        default: "Monthly",
+    },
+    assigned_shift: {
+        shift_name: { type: String, default: "Standard Morning (9:00 AM - 5:00 PM)" },
+        start_time: { type: String, default: "09:00 AM" },
+        end_time: { type: String, default: "05:00 PM" },
+        expected_hours_per_day: { type: Number, default: 8.0 },
+    },
+    bank_details: {
+        bank_name: { type: String, default: "" },
+        account_title: { type: String, default: "" },
+        account_number: { type: String, default: "" },
+        iban: { type: String, default: "" },
+    },
+    firm_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Firm",
+        index: true,
     },
     employee_joiningdate : {
         type: Date,

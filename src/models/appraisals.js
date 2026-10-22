@@ -57,6 +57,25 @@ const appraisalsModel = new mongoose.Schema({
       },
     },
   ],
+  firm_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Firm",
+    index: true,
+  },
+  updated_salary: {
+    type: String,
+    default: "",
+  },
+  effective_date: {
+    type: Date,
+  },
+  email_sent: {
+    type: Boolean,
+    default: false,
+  },
+  email_sent_at: {
+    type: Date,
+  },
   approvers: [
     {
       type: mongoose.Schema.Types.ObjectId,

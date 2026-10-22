@@ -49,7 +49,12 @@ const DFIModel = new mongoose.Schema({
             default: Date.now,
           },
         }
-      ]
+      ],
+    firm_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Firm",
+        index: true,
+    }
 })
 
 const DFIForms = mongoose.model("DFIForm", DFIModel);

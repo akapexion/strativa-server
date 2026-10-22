@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const CustomFormSubmissionSchema = new mongoose.Schema({
   form_id: { type: mongoose.Schema.Types.ObjectId, ref: "CustomForm", required: true },
+  firm_id: { type: mongoose.Schema.Types.ObjectId, ref: "Firm", index: true },
   form_no: {
     type: String,
     unique: true,

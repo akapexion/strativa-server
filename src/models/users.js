@@ -29,9 +29,18 @@ const usersModel = new mongoose.Schema({
   },
   user_image: {
     type: String,
-    required: true,
+    default: "fallback-avatar.svg",
   },
   is_manager: {
+    type: Boolean,
+    default: false,
+  },
+  firm_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Firm",
+    index: true,
+  },
+  must_change_password: {
     type: Boolean,
     default: false,
   }

@@ -10,6 +10,7 @@ const CustomFormFieldSchema = new mongoose.Schema({
 const CustomFormSchema = new mongoose.Schema({
   form_title: { type: String, required: true },
   form_target_role: { type: String, required: true }, // department name or "all"
+  firm_id: { type: mongoose.Schema.Types.ObjectId, ref: "Firm", index: true },
   fields: [CustomFormFieldSchema]
 }, { timestamps: true });
 

@@ -57,7 +57,12 @@ const KPIModel = new mongoose.Schema({
             default: Date.now,
           },
         }
-      ]
+      ],
+    firm_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Firm",
+        index: true,
+    }
 })
 
 const KPIForms = mongoose.model("KPIForm", KPIModel);

@@ -1,10 +1,12 @@
-import express from 'express'
-import { allManagers, login } from '../controllers/authController.js';
+import express from "express";
+import { allManagers, login, preValidateUser } from "../controllers/authController.js";
+import { checkLoginRateLimit } from "../middleware/rateLimiter.js";
+import { verifyToken } from "../middleware/authMiddleware.js";
 
 const authRoute = express.Router();
 
-authRoute.post("/login", login);
-authRoute.get("/all-managers", allManagers);
-
+authRoute.post("/pre-validate", checkLoginRateLimit, preValidateUser);
+authRoute.post("/login", checkLoginRateLimit, login);
+authRoute.get("/all-managers", verifyToken, allManagers);
 
 export default authRoute;
