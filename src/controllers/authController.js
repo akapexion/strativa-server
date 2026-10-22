@@ -46,9 +46,15 @@ export const login = async (req, res) => {
 
     const normalizedCode = normalizeIdentifier(user_code);
 
-    // Find user by code (case-insensitive search)
+    // Find user by code OR email (case-insensitive search with safe escaping)
+    const escapedCode = normalizedCode.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    const escapedRaw = user_code.trim().replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+
     const user = await Users.findOne({
-      user_code: { $regex: new RegExp(`^${normalizedCode}$`, "i") },
+      $or: [
+        { user_code: { $regex: new RegExp(`^${escapedCode}$`, "i") } },
+        { user_email: { $regex: new RegExp(`^${escapedRaw}$`, "i") } },
+      ],
     });
 
     if (!user) {

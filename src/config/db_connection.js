@@ -10,24 +10,31 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const connectDB = async () => {
-    if (mongoose.connection.readyState >= 1) {
-        return mongoose.connection;
-    }
+const FALLBACK_DB_URL =
+  "mongodb://asadkaptech_db_user:apexion-strativa@ac-q3go0yc-shard-00-00.fhcmxs2.mongodb.net:27017,ac-q3go0yc-shard-00-01.fhcmxs2.mongodb.net:27017,ac-q3go0yc-shard-00-02.fhcmxs2.mongodb.net:27017/?ssl=true&replicaSet=atlas-qd68km-shard-0&authSource=admin&appName=Cluster0/strativa-operations";
 
-    try {
-        const dbUrl = process.env.DB_URL;
-        if (!dbUrl) {
-            console.error("DB_URL environment variable is not defined!");
-            return;
-        }
-        const conn = await mongoose.connect(dbUrl);
-        console.log("DB Connected!");
-        return conn;
-    } catch (err) {
-        console.error("DB Connection Error:", err);
-        throw err;
-    }
+const connectDB = async () => {
+  if (mongoose.connection.readyState >= 1) {
+    return mongoose.connection;
+  }
+
+  try {
+    const dbUrl =
+      process.env.DB_URL ||
+      process.env.DATABASE_URL ||
+      process.env.MONGODB_URI ||
+      process.env.MONGO_URI ||
+      FALLBACK_DB_URL;
+
+    const conn = await mongoose.connect(dbUrl, {
+      serverSelectionTimeoutMS: 8000,
+    });
+    console.log("DB Connected!");
+    return conn;
+  } catch (err) {
+    console.error("DB Connection Error:", err);
+    throw err;
+  }
 };
 
 export default connectDB;
